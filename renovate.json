@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "semanticCommitType": "deps",
+  "semanticCommitScope": null,
+  "timezone": "Europe/Vienna",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "minimumReleaseAge": "3 days",
+  "rangeStrategy": "bump",
+  "automerge": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Group all Angular framework, CLI and build packages",
+      "matchPackageNames": ["@angular/*", "@angular-devkit/*", "@schematics/*"],
+      "groupName": "angular"
+    },
+    {
+      "description": "Group non-major devDependency updates together",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev-dependencies (non-major)"
+    },
+    {
+      "description": "Major updates are opt-in: require explicit approval via the dependency dashboard",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
