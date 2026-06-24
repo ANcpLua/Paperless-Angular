@@ -82,11 +82,11 @@ export class DocumentsService {
       this.documents.update((list) => [...list.filter((d) => d.id !== doc.id), toSummary(doc)]);
       this.notify.show(`Uploaded ${file.name}`, 'success');
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 0) {
+      const e = err as HttpErrorResponse;
+      if (e.status === 0) {
         this.notify.show(`Error uploading ${file.name}`, 'danger');
       } else {
-        const detail = (err instanceof HttpErrorResponse ? err.error?.detail : null) ?? 'upload failed';
-        this.notify.show(`Failed: ${detail}`, 'danger');
+        this.notify.show(`Failed: ${e.error?.detail ?? 'upload failed'}`, 'danger');
       }
     }
   }
@@ -98,11 +98,8 @@ export class DocumentsService {
       this.documents.update((list) => list.filter((d) => d.id !== id));
       this.notify.show('Document deleted', 'success');
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 0) {
-        this.notify.show('Error deleting document', 'danger');
-      } else {
-        this.notify.show('Delete failed', 'danger');
-      }
+      const e = err as HttpErrorResponse;
+      this.notify.show(e.status === 0 ? 'Error deleting document' : 'Delete failed', 'danger');
     }
   }
 
