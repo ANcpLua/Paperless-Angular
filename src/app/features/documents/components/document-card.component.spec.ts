@@ -43,9 +43,14 @@ describe('DocumentCardComponent', () => {
     expect(f.nativeElement.textContent).toContain('Unknown');
   });
 
-  it('shows a processed date when present', () => {
-    const f = render(makeDoc({ processedAt: '2026-01-02T00:00:00Z' }));
-    expect(f.nativeElement.textContent).toContain('Processed:');
+  it('renders the processed-date value when present', () => {
+    const f = render(makeDoc({ processedAt: '2026-01-02T12:00:00Z' }));
+    expect(f.nativeElement.textContent as string).toMatch(/Processed:.*2026/);
+  });
+
+  it('omits the processed line when processedAt is null', () => {
+    const f = render(makeDoc({ processedAt: null }));
+    expect(f.nativeElement.textContent).not.toContain('Processed:');
   });
 
   it('maps Pending -> warning badge with a spinner', () => {

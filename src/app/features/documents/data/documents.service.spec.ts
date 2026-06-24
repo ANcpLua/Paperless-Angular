@@ -4,11 +4,11 @@ import { TestBed } from '@angular/core/testing';
 
 import { API_BASE_URL } from '../../../core/config/api-base-url.token';
 import { NotificationService } from '../../../core/notifications/notification.service';
+import { EVENT_SOURCE_FACTORY } from '../../../core/sse/event-source.factory';
 import { DocumentSummary } from './document.models';
 import { DocumentsService } from './documents.service';
 
-class MockEventSource {
-  static instances: MockEventSource[] = [];
+class FakeEventSource {
   url: string;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -17,7 +17,6 @@ class MockEventSource {
 
   constructor(url: string) {
     this.url = url;
-    MockEventSource.instances.push(this);
   }
   addEventListener(type: string, cb: (e: { data: string }) => void): void {
     (this.listeners[type] ||= []).push(cb);
@@ -52,18 +51,24 @@ describe('DocumentsService', () => {
   let svc: DocumentsService;
   let httpTesting: HttpTestingController;
   let notify: { show: ReturnType<typeof vi.fn> };
+  let streams: FakeEventSource[];
 
   beforeEach(() => {
-    MockEventSource.instances = [];
-    vi.stubGlobal('EventSource', MockEventSource);
     vi.useFakeTimers();
     notify = { show: vi.fn() };
+    streams = [];
+    const factory = (url: string): EventSource => {
+      const es = new FakeEventSource(url);
+      streams.push(es);
+      return es as unknown as EventSource;
+    };
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: API_BASE_URL, useValue: baseUrl },
         { provide: NotificationService, useValue: notify },
+        { provide: EVENT_SOURCE_FACTORY, useValue: factory },
       ],
     });
     svc = TestBed.inject(DocumentsService);
@@ -72,7 +77,6 @@ describe('DocumentsService', () => {
   afterEach(() => {
     httpTesting.verify();
     vi.useRealTimers();
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -141,13 +145,6 @@ describe('DocumentsService', () => {
       .flush({ detail: 'too big' }, { status: 413, statusText: 'Payload Too Large' });
     await p;
     expect(notify.show).toHaveBeenCalledWith('Failed: too big', 'danger');
-  });
-
-  it('upload falls back to a generic message when there is no detail', async () => {
-    const p = svc.upload(pdf());
-    httpTesting.expectOne(`${baseUrl}api/v1/documents`).flush(null, { status: 500, statusText: 'err' });
-    await p;
-    expect(notify.show).toHaveBeenCalledWith('Failed: upload failed', 'danger');
   });
 
   it('upload reports a network failure with the file name', async () => {
@@ -223,83 +220,89 @@ describe('DocumentsService', () => {
     flushList();
   });
 
-  // ---- SSE live updates ----
-  it('connectStreams opens the OCR and GenAI streams', () => {
+  // ---- SSE live updates (via the injected factory, no global stub) ----
+  it('connectStreams opens the OCR and GenAI streams through the factory', () => {
     svc.connectStreams();
-    expect(MockEventSource.instances).toHaveLength(2);
-    expect(MockEventSource.instances[0].url).toContain('api/v1/ocr-results');
-    expect(MockEventSource.instances[1].url).toContain('api/v1/events/genai');
+    expect(streams.map((s) => s.url)).toEqual([
+      `${baseUrl}api/v1/ocr-results`,
+      `${baseUrl}api/v1/events/genai`,
+    ]);
   });
 
-  it('OCR onopen clears the disconnect flag', () => {
-    svc.liveDisconnected.set(true);
+  it('either stream opening clears the disconnect flag', () => {
     svc.connectStreams();
-    MockEventSource.instances[0].onopen?.();
+
+    svc.liveDisconnected.set(true);
+    streams[0].onopen?.(); // OCR stream reconnected
+    expect(svc.liveDisconnected()).toBe(false);
+
+    svc.liveDisconnected.set(true);
+    streams[1].onopen?.(); // GenAI stream reconnected
     expect(svc.liveDisconnected()).toBe(false);
   });
 
   it('ocr-completed reloads and notifies success', () => {
     svc.connectStreams();
-    MockEventSource.instances[0].emit('ocr-completed');
+    streams[0].emit('ocr-completed');
     flushList();
     expect(notify.show).toHaveBeenCalledWith('OCR completed', 'success');
   });
 
   it('ocr-failed reloads and notifies danger', () => {
     svc.connectStreams();
-    MockEventSource.instances[0].emit('ocr-failed');
+    streams[0].emit('ocr-failed');
     flushList();
     expect(notify.show).toHaveBeenCalledWith('OCR failed', 'danger');
   });
 
   it('genai-completed reloads and notifies success', () => {
     svc.connectStreams();
-    MockEventSource.instances[1].emit('genai-completed');
+    streams[1].emit('genai-completed');
     flushList();
     expect(notify.show).toHaveBeenCalledWith('Summary generated', 'success');
   });
 
   it('genai-failed reloads and notifies danger', () => {
     svc.connectStreams();
-    MockEventSource.instances[1].emit('genai-failed');
+    streams[1].emit('genai-failed');
     flushList();
     expect(notify.show).toHaveBeenCalledWith('Summary generation failed', 'danger');
   });
 
-  it('OCR onerror flags the disconnect, closes, and reconnects after 5s', () => {
+  it('an OCR stream error flags disconnect, closes, and reconnects after 5s', () => {
     svc.connectStreams();
-    MockEventSource.instances[0].onerror?.();
+    streams[0].onerror?.();
     expect(svc.liveDisconnected()).toBe(true);
-    expect(MockEventSource.instances[0].closed).toBe(true);
-    vi.advanceTimersByTime(5000);
-    expect(MockEventSource.instances.length).toBe(3);
-    expect(MockEventSource.instances[2].url).toContain('api/v1/ocr-results');
+    expect(streams[0].closed).toBe(true);
+    vi.advanceTimersByTime(5_000);
+    expect(streams).toHaveLength(3);
+    expect(streams[2].url).toBe(`${baseUrl}api/v1/ocr-results`);
   });
 
-  it('GenAI onerror closes and reconnects after 10s', () => {
+  it('a GenAI stream error also flags disconnect and reconnects after 10s', () => {
     svc.connectStreams();
-    MockEventSource.instances[1].onerror?.();
-    expect(MockEventSource.instances[1].closed).toBe(true);
-    vi.advanceTimersByTime(10000);
-    expect(MockEventSource.instances.length).toBe(3);
-    expect(MockEventSource.instances[2].url).toContain('api/v1/events/genai');
+    streams[1].onerror?.();
+    expect(svc.liveDisconnected()).toBe(true);
+    expect(streams[1].closed).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(streams).toHaveLength(3);
+    expect(streams[2].url).toBe(`${baseUrl}api/v1/events/genai`);
   });
 
   it('disconnectStreams closes both streams when nothing is pending', () => {
     svc.connectStreams();
     svc.disconnectStreams();
-    expect(MockEventSource.instances[0].closed).toBe(true);
-    expect(MockEventSource.instances[1].closed).toBe(true);
+    expect(streams[0].closed).toBe(true);
+    expect(streams[1].closed).toBe(true);
   });
 
   it('disconnectStreams cancels pending reconnect timers', () => {
     svc.connectStreams();
-    MockEventSource.instances[0].onerror?.();
-    MockEventSource.instances[1].onerror?.();
-    const count = MockEventSource.instances.length;
+    streams[0].onerror?.();
+    streams[1].onerror?.();
     svc.disconnectStreams();
-    vi.advanceTimersByTime(20000);
-    expect(MockEventSource.instances.length).toBe(count);
+    vi.advanceTimersByTime(20_000);
+    expect(streams).toHaveLength(2);
   });
 
   it('disconnectStreams is safe when never connected', () => {

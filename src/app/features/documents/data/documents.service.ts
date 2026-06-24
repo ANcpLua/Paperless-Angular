@@ -1,10 +1,11 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiClientService } from '../../../core/api/api-client.service';
+import { isNetworkError, problemDetail } from '../../../core/api/http-error';
 import { API_BASE_URL } from '../../../core/config/api-base-url.token';
 import { NotificationService } from '../../../core/notifications/notification.service';
+import { EVENT_SOURCE_FACTORY } from '../../../core/sse/event-source.factory';
 import {
   DocumentSearchResult,
   DocumentSummary,
@@ -14,6 +15,8 @@ import {
 } from './document.models';
 
 const PAGE_SIZE = 50;
+const OCR_RECONNECT_MS = 5_000;
+const SUMMARY_RECONNECT_MS = 10_000;
 
 /**
  * Full transpilation of the wwwroot SPA's document state machine: load / upload /
@@ -24,6 +27,7 @@ export class DocumentsService {
   private readonly api = inject(ApiClientService);
   private readonly notify = inject(NotificationService);
   private readonly baseUrl = inject(API_BASE_URL);
+  private readonly openEventSource = inject(EVENT_SOURCE_FACTORY);
 
   readonly documents = signal<readonly DocumentSummary[]>([]);
   readonly loading = signal(false);
@@ -82,12 +86,12 @@ export class DocumentsService {
       this.documents.update((list) => [...list.filter((d) => d.id !== doc.id), toSummary(doc)]);
       this.notify.show(`Uploaded ${file.name}`, 'success');
     } catch (err) {
-      const e = err as HttpErrorResponse;
-      if (e.status === 0) {
-        this.notify.show(`Error uploading ${file.name}`, 'danger');
-      } else {
-        this.notify.show(`Failed: ${e.error?.detail ?? 'upload failed'}`, 'danger');
-      }
+      this.notify.show(
+        isNetworkError(err)
+          ? `Error uploading ${file.name}`
+          : `Failed: ${problemDetail(err, 'upload failed')}`,
+        'danger',
+      );
     }
   }
 
@@ -98,8 +102,7 @@ export class DocumentsService {
       this.documents.update((list) => list.filter((d) => d.id !== id));
       this.notify.show('Document deleted', 'success');
     } catch (err) {
-      const e = err as HttpErrorResponse;
-      this.notify.show(e.status === 0 ? 'Error deleting document' : 'Delete failed', 'danger');
+      this.notify.show(isNetworkError(err) ? 'Error deleting document' : 'Delete failed', 'danger');
     }
   }
 
@@ -128,7 +131,7 @@ export class DocumentsService {
     this.load();
   }
 
-  // ---- SSE live updates (1:1 with connectOcrStream / connectSummaryStream) ----
+  // ---- SSE live updates. Both streams report liveness via liveDisconnected. ----
 
   connectStreams(): void {
     this.connectOcr();
@@ -148,13 +151,13 @@ export class DocumentsService {
 
   private connectOcr(): void {
     this.ocrStream?.close();
-    const es = new EventSource(this.streamUrl('api/v1/ocr-results'));
+    const es = this.openEventSource(this.streamUrl('api/v1/ocr-results'));
     this.ocrStream = es;
     es.onopen = () => this.liveDisconnected.set(false);
     es.onerror = () => {
       this.liveDisconnected.set(true);
       es.close();
-      this.ocrTimer = setTimeout(() => this.connectOcr(), 5000);
+      this.ocrTimer = setTimeout(() => this.connectOcr(), OCR_RECONNECT_MS);
     };
     es.addEventListener('ocr-completed', () => {
       this.load();
@@ -168,11 +171,13 @@ export class DocumentsService {
 
   private connectSummary(): void {
     this.summaryStream?.close();
-    const es = new EventSource(this.streamUrl('api/v1/events/genai'));
+    const es = this.openEventSource(this.streamUrl('api/v1/events/genai'));
     this.summaryStream = es;
+    es.onopen = () => this.liveDisconnected.set(false);
     es.onerror = () => {
+      this.liveDisconnected.set(true);
       es.close();
-      this.summaryTimer = setTimeout(() => this.connectSummary(), 10000);
+      this.summaryTimer = setTimeout(() => this.connectSummary(), SUMMARY_RECONNECT_MS);
     };
     es.addEventListener('genai-completed', () => {
       this.load();

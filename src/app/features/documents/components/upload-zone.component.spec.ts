@@ -50,9 +50,11 @@ describe('UploadZoneComponent', () => {
     expect(emitted).toHaveLength(0);
   });
 
-  it('invokes the change handler from the file input', () => {
+  it('emits the files chosen via the file input', () => {
+    const file = pdf('chosen.pdf');
+    Object.defineProperty(input(), 'files', { value: [file], configurable: true });
     input().dispatchEvent(new Event('change'));
-    expect(emitted).toHaveLength(0);
+    expect(emitted).toEqual([[file]]);
   });
 
   it('opens the native dialog when "Choose Files" is clicked', () => {

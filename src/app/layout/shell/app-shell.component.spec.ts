@@ -17,10 +17,11 @@ describe('AppShellComponent', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders the navbar and the router outlet host', () => {
+  it('renders the navbar and a router outlet for routed content', () => {
     const f = TestBed.createComponent(AppShellComponent);
     f.detectChanges();
     expect(f.nativeElement.querySelector('app-navbar')).not.toBeNull();
-    expect(f.nativeElement.querySelector('main')).not.toBeNull();
+    // router-outlet must be present — without it routing silently breaks.
+    expect(f.nativeElement.querySelector('router-outlet')).not.toBeNull();
   });
 });

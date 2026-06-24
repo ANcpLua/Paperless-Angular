@@ -67,10 +67,13 @@ describe('DocumentsPageComponent', () => {
     expect(docs.disconnectStreams).toHaveBeenCalled();
   });
 
-  it('shows a loading spinner while loading', () => {
+  it('shows the loading spinner only while loading', () => {
     docs.loading.set(true);
     const f = create();
     expect(f.nativeElement.querySelector('.spinner-border')).not.toBeNull();
+    docs.loading.set(false);
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.spinner-border')).toBeNull();
   });
 
   it('shows the default empty-state message', () => {
@@ -88,10 +91,12 @@ describe('DocumentsPageComponent', () => {
     );
   });
 
-  it('renders a card per visible document', () => {
-    docs.visible.set([summary({ id: '1', fileName: 'x.pdf' })]);
+  it('renders a card showing each visible document', () => {
+    docs.visible.set([summary({ id: '1', fileName: 'invoice-42.pdf' })]);
     const f = create();
-    expect(f.nativeElement.querySelectorAll('[data-testid="document-card"]').length).toBe(1);
+    const cards = f.nativeElement.querySelectorAll('[data-testid="document-card"]');
+    expect(cards.length).toBe(1);
+    expect(cards[0].textContent).toContain('invoice-42.pdf');
   });
 
   it('uploads every file emitted by the upload zone, sequentially', async () => {
@@ -138,9 +143,15 @@ describe('DocumentsPageComponent', () => {
     expect(docs.search).toHaveBeenCalledWith('kw');
   });
 
-  it('clear resets the term and clears the search', () => {
+  it('clear empties the search box and clears the search', () => {
     const f = create();
+    const input = f.nativeElement.querySelector('[data-testid="search-input"]') as HTMLInputElement;
+    input.value = 'stale';
+    input.dispatchEvent(new Event('input'));
+    f.detectChanges(); // bind the non-empty term before clearing
     (f.nativeElement.querySelector('[data-testid="clear-btn"]') as HTMLButtonElement).click();
-    expect(docs.clearSearch).toHaveBeenCalled();
+    f.detectChanges();
+    expect(input.value).toBe('');
+    expect(docs.clearSearch).toHaveBeenCalledTimes(1);
   });
 });
