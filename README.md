@@ -1,5 +1,8 @@
 # Paperless-Angular
 
+[![Tests and Coverage](https://github.com/ANcpLua/Paperless-Angular/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/ANcpLua/Paperless-Angular/actions/workflows/coverage.yml)
+[![codecov](https://codecov.io/gh/ANcpLua/Paperless-Angular/branch/main/graph/badge.svg)](https://codecov.io/gh/ANcpLua/Paperless-Angular)
+
 Angular 21 frontend for the **Paperless** document-OCR system — a 1:1, fully transpiled
 re-implementation of the reference vanilla-JS SPA, built with standalone components,
 signals, and OnPush change detection.

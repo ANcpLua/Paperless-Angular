@@ -1,0 +1,40 @@
+name: Tests and Coverage
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  angular-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `ng test --coverage` enforces the perFile statements/branches/functions/lines = 100
+      # thresholds declared in angular.json, so a coverage regression fails the build.
+      - name: Run unit tests with coverage
+        run: pnpm exec ng test --watch=false --coverage
+
+      # Tokenless upload — public repo, no stored CODECOV_TOKEN (an empty token string
+      # breaks the Codecov CLI). Non-fatal so a Codecov hiccup never reds the build.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2
+        with:
+          flags: angular
+          fail_ci_if_error: false
