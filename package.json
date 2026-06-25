@@ -10,8 +10,8 @@
     "test:watch": "ng test",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "generate:openapi": "node -e \"const fs=require('node:fs');fs.rmSync('../PaperlessREST/openapi/paperless.json',{force:true})\" && dotnet build ../PaperlessREST/PaperlessREST.csproj -tlp:ErrorsOnly && node -e \"if(!require('node:fs').existsSync('../PaperlessREST/openapi/paperless.json')){console.error('paperless.json not generated');process.exit(1)}\"",
-    "generate:types": "openapi-typescript ../PaperlessREST/openapi/paperless.json -o src/app/core/api/generated/api-types.ts",
+    "generate:openapi": "node -e \"const fs=require('node:fs');fs.rmSync('backend/PaperlessREST/openapi/paperless.json',{force:true})\" && dotnet build backend/PaperlessREST/PaperlessREST.csproj -tlp:ErrorsOnly && node -e \"if(!require('node:fs').existsSync('backend/PaperlessREST/openapi/paperless.json')){console.error('paperless.json not generated — backend has no build-time OpenAPI emit yet; api-types.ts is hand-derived from the C# contract');process.exit(1)}\"",
+    "generate:types": "openapi-typescript backend/PaperlessREST/openapi/paperless.json -o src/app/core/api/generated/api-types.ts",
     "generate": "pnpm run generate:openapi && pnpm run generate:types"
   },
   "private": true,
