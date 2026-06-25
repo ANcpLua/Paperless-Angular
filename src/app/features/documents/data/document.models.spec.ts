@@ -37,11 +37,13 @@ describe('toSummary', () => {
       content: 'text',
       processedAt: '2026-02-02T00:00:00Z',
       summary: 'sum',
+      summaryGeneratedAt: '2026-02-03T00:00:00Z',
       createdAt: '2026-02-01T00:00:00Z',
     });
     expect(s.content).toBe('text');
     expect(s.processedAt).toBe('2026-02-02T00:00:00Z');
     expect(s.summary).toBe('sum');
+    expect(s.summaryGeneratedAt).toBe('2026-02-03T00:00:00Z');
   });
 
   it('coalesces present-but-null optional fields to null', () => {
@@ -52,11 +54,13 @@ describe('toSummary', () => {
       content: null,
       processedAt: null,
       summary: null,
+      summaryGeneratedAt: null,
       createdAt: '2026-03-01T00:00:00Z',
     });
     expect(s.status).toBe('Failed');
     expect(s.content).toBeNull();
     expect(s.processedAt).toBeNull();
     expect(s.summary).toBeNull();
+    expect(s.summaryGeneratedAt).toBeNull();
   });
 });
