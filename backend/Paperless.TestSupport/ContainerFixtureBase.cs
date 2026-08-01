@@ -1,3 +1,4 @@
+using Elastic.Transport;
 using System.Runtime.ExceptionServices;
 
 namespace Paperless.TestSupport;
@@ -25,8 +26,8 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 	/// <summary>Unique per-fixture default Elasticsearch index name.</summary>
 	protected string IndexName { get; } = $"test_{Guid.NewGuid():N}";
 
-	/// <summary>MinIO host:port endpoint string (valid after containers start).</summary>
-	protected string MinioEndpoint => MinioBucket.Endpoint(_minio);
+	/// <summary>MinIO endpoint URI (valid after containers start).</summary>
+	protected string MinioEndpoint => $"http://{MinioBucket.Endpoint(_minio)}";
 
 	protected string MinioAccessKey => _minio.GetAccessKey();
 	protected string MinioSecretKey => _minio.GetSecretKey();
@@ -62,7 +63,7 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 
 	public async ValueTask DisposeAsync()
 	{
-		Exception? sutFailure = null;
+		List<Exception> failures = [];
 
 		try
 		{
@@ -70,56 +71,51 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 		}
 		catch (Exception exception)
 		{
-			sutFailure = exception;
+			failures.Add(exception);
 		}
 
-		List<Task> containerDisposals =
-		[
-			_rabbit.DisposeAsync().AsTask(),
-			_minio.DisposeAsync().AsTask(),
-			_elastic.DisposeAsync().AsTask()
-		];
+		try
+		{
+			await _rabbit.DisposeAsync();
+		}
+		catch (Exception exception)
+		{
+			failures.Add(exception);
+		}
+
+		try
+		{
+			await _minio.DisposeAsync();
+		}
+		catch (Exception exception)
+		{
+			failures.Add(exception);
+		}
+
+		try
+		{
+			await _elastic.DisposeAsync();
+		}
+		catch (Exception exception)
+		{
+			failures.Add(exception);
+		}
+
 		if (_postgres is not null)
-		{
-			containerDisposals.Add(_postgres.DisposeAsync().AsTask());
-		}
-
-		await ThrowDisposalFailuresAsync(sutFailure, containerDisposals);
-	}
-
-	internal static async ValueTask ThrowDisposalFailuresAsync(
-		Exception? sutFailure,
-		IReadOnlyList<Task> containerDisposals)
-	{
-		List<Exception> failures = [];
-
-		if (sutFailure is not null)
-		{
-			failures.Add(sutFailure);
-		}
-
-		foreach (Task containerDisposal in containerDisposals)
 		{
 			try
 			{
-				await containerDisposal;
+				await _postgres.DisposeAsync();
 			}
 			catch (Exception exception)
 			{
-				if (containerDisposal.Exception is { InnerExceptions.Count: > 1 } taskFailure)
-				{
-					failures.AddRange(taskFailure.InnerExceptions);
-				}
-				else
-				{
-					failures.Add(exception);
-				}
+				failures.Add(exception);
 			}
 		}
 
 		if (failures.Count > 1)
 		{
-			throw new AggregateException("Multiple fixture disposal operations failed.", failures);
+			throw new AggregateException("Fixture teardown failed.", failures);
 		}
 
 		if (failures.Count == 1)
@@ -159,9 +155,11 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 		{
 			while (true)
 			{
-				var response = await client.GetAsync<T>(
-					documentId,
-					g => g.Index(client.ElasticsearchClientSettings.DefaultIndex),
+				var response = await ExecuteElasticsearchAsync(
+					token => client.GetAsync<T>(
+						documentId,
+						g => g.Index(client.ElasticsearchClientSettings.DefaultIndex),
+						token),
 					linkedCts.Token);
 
 				if (response.Found)
@@ -175,9 +173,18 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 		catch (OperationCanceledException) when (
 			timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
 		{
-			return await client.GetAsync<T>(
-				documentId,
-				g => g.Index(client.ElasticsearchClientSettings.DefaultIndex),
+			return await ExecuteElasticsearchAsync(
+				token => client.GetAsync<T>(
+					documentId,
+					g => g.Index(client.ElasticsearchClientSettings.DefaultIndex),
+					token),
+				cancellationToken);
+		}
+		catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+		{
+			throw new OperationCanceledException(
+				"Elasticsearch polling was canceled.",
+				exception,
 				cancellationToken);
 		}
 	}
@@ -202,13 +209,17 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 		try
 		{
 			// Refresh.True writes can still lag behind search on slow CI storage.
-			await client.Indices.RefreshAsync(
-				r => r.Indices(client.ElasticsearchClientSettings.DefaultIndex),
+			await ExecuteElasticsearchAsync(
+				token => client.Indices.RefreshAsync(
+					r => r.Indices(client.ElasticsearchClientSettings.DefaultIndex),
+					token),
 				linkedCts.Token);
 
 			while (true)
 			{
-				var response = await client.SearchAsync<T>(configureSearch, linkedCts.Token);
+				var response = await ExecuteElasticsearchAsync(
+					token => client.SearchAsync(configureSearch, token),
+					linkedCts.Token);
 
 				if (response.Documents.Count > 0)
 				{
@@ -221,7 +232,35 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 		catch (OperationCanceledException) when (
 			timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
 		{
-			return await client.SearchAsync(configureSearch, cancellationToken);
+			return await ExecuteElasticsearchAsync(
+				token => client.SearchAsync(configureSearch, token),
+				cancellationToken);
+		}
+		catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+		{
+			throw new OperationCanceledException(
+				"Elasticsearch polling was canceled.",
+				exception,
+				cancellationToken);
+		}
+	}
+
+	private static async Task<T> ExecuteElasticsearchAsync<T>(
+		Func<CancellationToken, Task<T>> operation,
+		CancellationToken cancellationToken)
+	{
+		try
+		{
+			return await operation(cancellationToken);
+		}
+		catch (TransportException exception) when (
+			cancellationToken.IsCancellationRequested &&
+			exception.InnerException is OperationCanceledException)
+		{
+			throw new OperationCanceledException(
+				"Elasticsearch operation was canceled.",
+				exception,
+				cancellationToken);
 		}
 	}
 }

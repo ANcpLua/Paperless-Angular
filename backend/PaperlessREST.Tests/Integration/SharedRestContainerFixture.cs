@@ -1,13 +1,21 @@
 using PaperlessREST.Host;
+using System.Runtime.ExceptionServices;
 
 [assembly: CaptureConsole]
 [assembly: CaptureTrace]
 
 namespace PaperlessREST.Tests.Integration;
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class SharedRestContainerCollection : ICollectionFixture<SharedRestContainerFixture>
+{
+	public const string Name = "Shared REST containers";
+}
+
 public sealed class SharedRestContainerFixture() : ContainerFixtureBase(usesPostgres: true)
 {
 	static SharedRestContainerFixture() => TestEnv.Load();
+	private readonly Dictionary<string, string?> _originalEnvironment = new(StringComparer.OrdinalIgnoreCase);
 
 	public HttpClient Client { get; private set; } = null!;
 	public IDbContextFactory<DocumentPersistence> DbFactory { get; private set; } = null!;
@@ -15,28 +23,29 @@ public sealed class SharedRestContainerFixture() : ContainerFixtureBase(usesPost
 	public AsyncServiceScope CreateAsyncScope() => Services.CreateAsyncScope();
 
 	private WebApplicationFactory<Program>? _factory;
+	private string? _batchRoot;
 
 	protected override async ValueTask ConfigureSutAsync()
 	{
 		// WebApplicationFactory's environment provider outranks test-host configuration,
 		// so its process environment must contain the real container endpoints.
-		Environment.SetEnvironmentVariable("CONNECTIONSTRINGS__PAPERLESSDB", PostgresConnectionString);
-		Environment.SetEnvironmentVariable("CONNECTIONSTRINGS__HANGFIRE", PostgresConnectionString);
-		Environment.SetEnvironmentVariable("RABBITMQ__URI", RabbitConnectionString);
-		Environment.SetEnvironmentVariable("STORAGE__MINIO__ENDPOINT", MinioEndpoint);
-		Environment.SetEnvironmentVariable("STORAGE__MINIO__ACCESSKEY", MinioAccessKey);
-		Environment.SetEnvironmentVariable("STORAGE__MINIO__SECRETKEY", MinioSecretKey);
-		Environment.SetEnvironmentVariable("STORAGE__MINIO__BUCKETNAME", BucketName);
-		Environment.SetEnvironmentVariable("ELASTICSEARCH__URI", ElasticsearchUri);
-		Environment.SetEnvironmentVariable("ELASTICSEARCH__DEFAULTINDEX", IndexName);
+		OverrideEnvironmentVariable("CONNECTIONSTRINGS__PAPERLESSDB", PostgresConnectionString);
+		OverrideEnvironmentVariable("CONNECTIONSTRINGS__HANGFIRE", PostgresConnectionString);
+		OverrideEnvironmentVariable("RABBITMQ__URI", RabbitConnectionString);
+		OverrideEnvironmentVariable("STORAGE__MINIO__ENDPOINT", MinioEndpoint);
+		OverrideEnvironmentVariable("STORAGE__MINIO__ACCESSKEY", MinioAccessKey);
+		OverrideEnvironmentVariable("STORAGE__MINIO__SECRETKEY", MinioSecretKey);
+		OverrideEnvironmentVariable("STORAGE__MINIO__BUCKETNAME", BucketName);
+		OverrideEnvironmentVariable("ELASTICSEARCH__URI", ElasticsearchUri);
+		OverrideEnvironmentVariable("ELASTICSEARCH__DEFAULTINDEX", IndexName);
 
-		var batchRoot = Path.Combine(Path.GetTempPath(), $"paperless-batch-{Guid.NewGuid():N}");
-		Environment.SetEnvironmentVariable("BATCH__INPUTPATH", Path.Combine(batchRoot, "input"));
-		Environment.SetEnvironmentVariable("BATCH__ARCHIVEPATH", Path.Combine(batchRoot, "archive"));
-		Environment.SetEnvironmentVariable("BATCH__ERRORPATH", Path.Combine(batchRoot, "error"));
-		Environment.SetEnvironmentVariable("BATCH__FILEPATTERN", "*.xml");
-		Environment.SetEnvironmentVariable("BATCH__CRONEXPRESSION", "0 2 * * *");
-		Environment.SetEnvironmentVariable("BATCH__TIMEZONEID", "UTC");
+		_batchRoot = Path.Combine(Path.GetTempPath(), $"paperless-batch-{Guid.NewGuid():N}");
+		OverrideEnvironmentVariable("BATCH__INPUTPATH", Path.Combine(_batchRoot, "input"));
+		OverrideEnvironmentVariable("BATCH__ARCHIVEPATH", Path.Combine(_batchRoot, "archive"));
+		OverrideEnvironmentVariable("BATCH__ERRORPATH", Path.Combine(_batchRoot, "error"));
+		OverrideEnvironmentVariable("BATCH__FILEPATTERN", "*.xml");
+		OverrideEnvironmentVariable("BATCH__CRONEXPRESSION", "0 2 * * *");
+		OverrideEnvironmentVariable("BATCH__TIMEZONEID", "UTC");
 
 		_factory = new ConfiguredWebApplicationFactory(PostgresConnectionString);
 
@@ -50,8 +59,60 @@ public sealed class SharedRestContainerFixture() : ContainerFixtureBase(usesPost
 
 	protected override async ValueTask DisposeSutAsync()
 	{
-		if (_factory is not null)
-			await _factory.DisposeAsync();
+		List<Exception> failures = [];
+
+		try
+		{
+			if (_factory is not null)
+			{
+				await _factory.DisposeAsync();
+			}
+		}
+		catch (Exception exception)
+		{
+			failures.Add(exception);
+		}
+
+		foreach ((string name, string? value) in _originalEnvironment)
+		{
+			try
+			{
+				Environment.SetEnvironmentVariable(name, value);
+			}
+			catch (Exception exception)
+			{
+				failures.Add(exception);
+			}
+		}
+		_originalEnvironment.Clear();
+
+		try
+		{
+			if (_batchRoot is not null && Directory.Exists(_batchRoot))
+			{
+				Directory.Delete(_batchRoot, recursive: true);
+			}
+		}
+		catch (Exception exception)
+		{
+			failures.Add(exception);
+		}
+
+		if (failures.Count > 1)
+		{
+			throw new AggregateException("REST fixture teardown failed.", failures);
+		}
+
+		if (failures.Count == 1)
+		{
+			ExceptionDispatchInfo.Capture(failures[0]).Throw();
+		}
+	}
+
+	private void OverrideEnvironmentVariable(string name, string value)
+	{
+		_originalEnvironment.TryAdd(name, Environment.GetEnvironmentVariable(name));
+		Environment.SetEnvironmentVariable(name, value);
 	}
 
 	private sealed class ConfiguredWebApplicationFactory(string postgresConnectionString)
