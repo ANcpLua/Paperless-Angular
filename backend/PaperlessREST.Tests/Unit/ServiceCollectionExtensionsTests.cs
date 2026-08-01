@@ -256,19 +256,19 @@ public sealed class ServiceCollectionExtensionsTests
 		{
 			["ConnectionStrings:PaperlessDb"] = "Host=localhost;Database=test;Username=u;Password=p",
 			["ConnectionStrings:Hangfire"] = "Host=localhost;Database=hf;Username=u;Password=p",
-			["RabbitMQ:Uri"] = "amqp://guest:guest@localhost:5672/",
+			["RabbitMQ:Uri"] = "amqp://localhost:5672/",
 			["Storage:Minio:Endpoint"] = "localhost:9000",
 			["Storage:Minio:AccessKey"] = "k",
 			["Storage:Minio:SecretKey"] = "s",
 			["Storage:Minio:BucketName"] = "b",
 			["Elasticsearch:Uri"] = "http://localhost:9200",
 			["Elasticsearch:DefaultIndex"] = "docs",
-			["BatchProcessing:InputPath"] = "/in",
-			["BatchProcessing:ArchivePath"] = "/arch",
-			["BatchProcessing:ErrorPath"] = "/err",
-			["BatchProcessing:FilePattern"] = "*.xml",
-			["BatchProcessing:CronExpression"] = "0 0 * * *",
-			["BatchProcessing:TimeZoneId"] = "UTC"
+			["Batch:InputPath"] = "/in",
+			["Batch:ArchivePath"] = "/arch",
+			["Batch:ErrorPath"] = "/err",
+			["Batch:FilePattern"] = "*.xml",
+			["Batch:CronExpression"] = "0 0 * * *",
+			["Batch:TimeZoneId"] = "UTC"
 		});
 		builder.AddDependencies();
 

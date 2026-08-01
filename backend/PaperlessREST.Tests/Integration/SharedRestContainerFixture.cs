@@ -5,11 +5,9 @@ using PaperlessREST.Host;
 
 namespace PaperlessREST.Tests.Integration;
 
-public sealed class SharedRestContainerFixture : ContainerFixtureBase
+public sealed class SharedRestContainerFixture() : ContainerFixtureBase(usesPostgres: true)
 {
 	static SharedRestContainerFixture() => TestEnv.Load();
-
-	protected override bool UsesPostgres => true;
 
 	public HttpClient Client { get; private set; } = null!;
 	public IDbContextFactory<DocumentPersistence> DbFactory { get; private set; } = null!;
@@ -20,15 +18,8 @@ public sealed class SharedRestContainerFixture : ContainerFixtureBase
 
 	protected override async ValueTask ConfigureSutAsync()
 	{
-		// Point the REST host's infra config at the Testcontainers endpoints via environment
-		// variables. This is deliberate, not a regression: WebApplicationFactory + minimal hosting
-		// builds the app's own configuration (including the environment-variable source that
-		// `.env.test` populates process-globally), and that source OUTRANKS anything the factory adds
-		// via ConfigureAppConfiguration — even Sources.Clear() only touches the host-config layer, so
-		// an in-memory override is silently beaten by `.env.test`'s RABBITMQ__URI=localhost:5672 and
-		// every endpoint 500s (BrokerUnreachable). Setting the env vars to the real container values is
-		// the only thing the WAF host actually reads. (The Services fixture, a plain Host builder, can
-		// and does use Sources.Clear()+AddInMemoryCollection — minimal-hosting WAF cannot.)
+		// WebApplicationFactory's environment provider outranks test-host configuration,
+		// so its process environment must contain the real container endpoints.
 		Environment.SetEnvironmentVariable("CONNECTIONSTRINGS__PAPERLESSDB", PostgresConnectionString);
 		Environment.SetEnvironmentVariable("CONNECTIONSTRINGS__HANGFIRE", PostgresConnectionString);
 		Environment.SetEnvironmentVariable("RABBITMQ__URI", RabbitConnectionString);
@@ -38,6 +29,14 @@ public sealed class SharedRestContainerFixture : ContainerFixtureBase
 		Environment.SetEnvironmentVariable("STORAGE__MINIO__BUCKETNAME", BucketName);
 		Environment.SetEnvironmentVariable("ELASTICSEARCH__URI", ElasticsearchUri);
 		Environment.SetEnvironmentVariable("ELASTICSEARCH__DEFAULTINDEX", IndexName);
+
+		var batchRoot = Path.Combine(Path.GetTempPath(), $"paperless-batch-{Guid.NewGuid():N}");
+		Environment.SetEnvironmentVariable("BATCH__INPUTPATH", Path.Combine(batchRoot, "input"));
+		Environment.SetEnvironmentVariable("BATCH__ARCHIVEPATH", Path.Combine(batchRoot, "archive"));
+		Environment.SetEnvironmentVariable("BATCH__ERRORPATH", Path.Combine(batchRoot, "error"));
+		Environment.SetEnvironmentVariable("BATCH__FILEPATTERN", "*.xml");
+		Environment.SetEnvironmentVariable("BATCH__CRONEXPRESSION", "0 2 * * *");
+		Environment.SetEnvironmentVariable("BATCH__TIMEZONEID", "UTC");
 
 		_factory = new ConfiguredWebApplicationFactory(PostgresConnectionString);
 

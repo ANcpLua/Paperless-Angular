@@ -62,8 +62,8 @@ bld/
 !**/packages/build/
 
 # Environment files
-# .env.test is tracked: it holds test-safe defaults loaded by the integration
-# fixtures' static constructors. .env / .env.local stay gitignored (real config).
+# Environment templates live in the canonical backend repository. Tests in this
+# bundled copy provide required configuration directly.
 .env
 .env.local
 .env.development.local
