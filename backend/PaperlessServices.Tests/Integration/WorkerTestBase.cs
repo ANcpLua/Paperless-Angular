@@ -15,13 +15,11 @@ public class SharedContainerCollection : ICollectionFixture<SharedContainerFixtu
 	public const string Name = "SharedContainer";
 }
 
-public class SharedContainerFixture : ContainerFixtureBase
+public class SharedContainerFixture() : ContainerFixtureBase(usesPostgres: false)
 {
 	static SharedContainerFixture() => TestEnv.Load();
 
-	protected override bool UsesPostgres => false;
-
-	private IHost _host = null!;
+	private IHost? _host;
 
 	protected override async ValueTask ConfigureSutAsync()
 	{
@@ -61,14 +59,14 @@ public class SharedContainerFixture : ContainerFixtureBase
 
 	protected override async ValueTask DisposeSutAsync()
 	{
-		// _host is assigned in ConfigureSutAsync. If init throws before that line
-		// (e.g. a container wait-strategy times out), _host is still null; the base
-		// guards this call so a naive _host.StopAsync() NRE cannot mask the real
-		// InitializeAsync exception in xUnit's collection-fixture cleanup report.
-		if (_host is not null)
+		if (_host is null) return;
+
+		try
 		{
-			try { await _host.StopAsync(); }
-			catch { /* best-effort: don't mask the InitializeAsync exception */ }
+			await _host.StopAsync();
+		}
+		finally
+		{
 			_host.Dispose();
 		}
 	}
