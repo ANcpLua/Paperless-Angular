@@ -30,6 +30,14 @@ public sealed class SharedRestContainerFixture() : ContainerFixtureBase(usesPost
 		Environment.SetEnvironmentVariable("ELASTICSEARCH__URI", ElasticsearchUri);
 		Environment.SetEnvironmentVariable("ELASTICSEARCH__DEFAULTINDEX", IndexName);
 
+		var batchRoot = Path.Combine(Path.GetTempPath(), $"paperless-batch-{Guid.NewGuid():N}");
+		Environment.SetEnvironmentVariable("BATCH__INPUTPATH", Path.Combine(batchRoot, "input"));
+		Environment.SetEnvironmentVariable("BATCH__ARCHIVEPATH", Path.Combine(batchRoot, "archive"));
+		Environment.SetEnvironmentVariable("BATCH__ERRORPATH", Path.Combine(batchRoot, "error"));
+		Environment.SetEnvironmentVariable("BATCH__FILEPATTERN", "*.xml");
+		Environment.SetEnvironmentVariable("BATCH__CRONEXPRESSION", "0 2 * * *");
+		Environment.SetEnvironmentVariable("BATCH__TIMEZONEID", "UTC");
+
 		_factory = new ConfiguredWebApplicationFactory(PostgresConnectionString);
 
 		Client = _factory.CreateClient();
