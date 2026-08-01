@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace Paperless.TestSupport;
 
 /// <summary>
@@ -60,24 +62,69 @@ public abstract class ContainerFixtureBase : IAsyncLifetime
 
 	public async ValueTask DisposeAsync()
 	{
+		Exception? sutFailure = null;
+
 		try
 		{
 			await DisposeSutAsync();
 		}
-		finally
+		catch (Exception exception)
 		{
-			List<Task> disposalTasks =
-			[
-				_rabbit.DisposeAsync().AsTask(),
-				_minio.DisposeAsync().AsTask(),
-				_elastic.DisposeAsync().AsTask()
-			];
-			if (_postgres is not null)
-			{
-				disposalTasks.Add(_postgres.DisposeAsync().AsTask());
-			}
+			sutFailure = exception;
+		}
 
-			await Task.WhenAll(disposalTasks);
+		List<Task> containerDisposals =
+		[
+			_rabbit.DisposeAsync().AsTask(),
+			_minio.DisposeAsync().AsTask(),
+			_elastic.DisposeAsync().AsTask()
+		];
+		if (_postgres is not null)
+		{
+			containerDisposals.Add(_postgres.DisposeAsync().AsTask());
+		}
+
+		await ThrowDisposalFailuresAsync(sutFailure, containerDisposals);
+	}
+
+	internal static async ValueTask ThrowDisposalFailuresAsync(
+		Exception? sutFailure,
+		IReadOnlyList<Task> containerDisposals)
+	{
+		List<Exception> failures = [];
+
+		if (sutFailure is not null)
+		{
+			failures.Add(sutFailure);
+		}
+
+		foreach (Task containerDisposal in containerDisposals)
+		{
+			try
+			{
+				await containerDisposal;
+			}
+			catch (Exception exception)
+			{
+				if (containerDisposal.Exception is { InnerExceptions.Count: > 1 } taskFailure)
+				{
+					failures.AddRange(taskFailure.InnerExceptions);
+				}
+				else
+				{
+					failures.Add(exception);
+				}
+			}
+		}
+
+		if (failures.Count > 1)
+		{
+			throw new AggregateException("Multiple fixture disposal operations failed.", failures);
+		}
+
+		if (failures.Count == 1)
+		{
+			ExceptionDispatchInfo.Capture(failures[0]).Throw();
 		}
 	}
 
