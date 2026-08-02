@@ -45,6 +45,7 @@ public sealed class FakeLoggerExtensionsTests
 			pollInterval: TimeSpan.FromMilliseconds(1),
 			cancellationToken: cancellation.Token);
 
-		await act.Should().ThrowAsync<OperationCanceledException>();
+		(await act.Should().ThrowExactlyAsync<OperationCanceledException>())
+			.Which.CancellationToken.Should().Be(cancellation.Token);
 	}
 }

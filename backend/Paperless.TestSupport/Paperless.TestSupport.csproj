@@ -10,10 +10,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<InternalsVisibleTo Include="PaperlessServices.Tests"/>
-	</ItemGroup>
-
-	<ItemGroup>
 		<!-- Infrastructure only. MUST NOT reference PaperlessREST or PaperlessServices. -->
 		<PackageReference Include="DotNetEnv"/>
 		<PackageReference Include="Minio"/>

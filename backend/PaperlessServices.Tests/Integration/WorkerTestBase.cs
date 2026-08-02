@@ -32,7 +32,6 @@ public class SharedContainerFixture() : ContainerFixtureBase(usesPostgres: false
 			["Storage:Minio:AccessKey"] = MinioAccessKey,
 			["Storage:Minio:SecretKey"] = MinioSecretKey,
 			["Storage:Minio:BucketName"] = BucketName,
-			["Storage:Minio:UseSsl"] = Environment.GetEnvironmentVariable("MINIO_USE_SSL") ?? "false",
 			["Elasticsearch:Uri"] = ElasticsearchUri,
 			["Elasticsearch:DefaultIndex"] = IndexName
 		});
@@ -71,13 +70,16 @@ public class SharedContainerFixture() : ContainerFixtureBase(usesPostgres: false
 		}
 	}
 
-	public async Task<string> UploadPdfAsync(string content)
+	public async Task<string> UploadPdfAsync(string content) =>
+		await UploadPdfAsync(await TestPdf.BytesAsync(content));
+
+	public async Task<string> UploadPdfAsync(byte[] content)
 	{
 		var storageKey =
 			$"documents/{TimeProvider.System.GetUtcNow():yyyy-MM}/{Guid.NewGuid():N}/test-{Guid.NewGuid():N}.pdf";
 		var client = Services.GetRequiredService<IMinioClient>();
 
-		await using var stream = new MemoryStream(await TestPdf.BytesAsync(content));
+		await using var stream = new MemoryStream(content, writable: false);
 		await client.PutObjectAsync(new PutObjectArgs()
 			.WithBucket(BucketName)
 			.WithObject(storageKey)

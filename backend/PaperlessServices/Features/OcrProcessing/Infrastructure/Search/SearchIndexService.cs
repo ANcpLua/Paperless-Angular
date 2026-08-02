@@ -71,7 +71,7 @@ public class SearchIndexService(
 		}
 	}
 
-	internal void LogIndexResult(Guid id, bool isValid)
+	public void LogIndexResult(Guid id, bool isValid)
 	{
 		if (!isValid)
 		{

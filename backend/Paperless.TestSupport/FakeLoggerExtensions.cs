@@ -56,6 +56,13 @@ public static class FakeLoggerExtensions
 		{
 			return condition(source.GetSnapshot());
 		}
+		catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+		{
+			throw new OperationCanceledException(
+				"Waiting for a log condition was canceled.",
+				exception,
+				cancellationToken);
+		}
 	}
 
 	/// <summary>
