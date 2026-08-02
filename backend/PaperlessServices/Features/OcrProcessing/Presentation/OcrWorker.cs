@@ -18,7 +18,7 @@ public class OcrWorker(
 		}
 	}
 
-	public async Task ProcessMessage(
+	internal async Task ProcessMessage(
 		OcrCommand request,
 		IRabbitMqConsumer<OcrCommand> consumer,
 		CancellationToken cancellationToken)
